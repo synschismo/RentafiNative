@@ -17,7 +17,7 @@ contract RentafiNative is ERC721 {
   // MODIFIED - RentaFi Native
   struct OwnerInfo {
     address owner; // address of user role
-    address lender;
+    address superOwner;
     uint256 expires; // unix timestamp, user expires
   }
 
@@ -39,15 +39,12 @@ contract RentafiNative is ERC721 {
   // Mapping from owner to operator approvals
   mapping(address => mapping(address => bool)) private _operatorApprovals;
 
-  /**
-   * @dev Initializes the contract by setting a `name` and a `symbol` to the token collection.
-   */
   constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {}
 
   // MODIFIED - RentaFi Native
   function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
     return
-      //TODO
+      // TODO
       interfaceId == type(IERC721).interfaceId ||
       interfaceId == type(IERC721Metadata).interfaceId ||
       super.supportsInterface(interfaceId);
@@ -55,24 +52,19 @@ contract RentafiNative is ERC721 {
 
   // MODIFIED - RentaFi Native
   function balanceOf(address owner) public view virtual override returns (uint256) {
-    //require(owner != address(0), 'ERC721: address zero is not a valid owner');
-    //return _balances[owner];
-    //発行されているすべてのtokenIdを検索する必要がある
+    require(owner != address(0), 'ERC721: address zero is not a valid owner');
     uint256 _rental;
     uint256 _lend;
-    for (uint256 i = 0; i < _allTokens.length; i++) {
-      // レンタル中であれば（この時点では誰が借りているかは不明
+    for (uint256 i = 0; i < _allTokens.length; ) {
       if (_owners[_allTokens[i]].expires >= block.timestamp) {
-        // 実行者がどれくらい該当するかを総和してく
-        if (_owners[_allTokens[i]].owner == owner) {
-          _rental++;
-        }
-        if (_owners[_allTokens[i]].lender == owner) {
-          _lend++;
-        }
+        if (_owners[_allTokens[i]].owner == owner) _rental++;
+        if (_owners[_allTokens[i]].superOwner == owner) _lend++;
+      }
+      unchecked {
+        i++;
       }
     }
-    return _rental + superBalanceOf(owner) - _lend; // 自分で保有している分とレンタルしている分を合わせた数量を返す
+    return superBalanceOf(owner) + _rental - _lend;
   }
 
   // MODIFIED - RentaFi Native
@@ -97,13 +89,13 @@ contract RentafiNative is ERC721 {
     uint64 expires
   ) public virtual {
     require(
-      _isApprovedOrOwner(msg.sender, tokenId),
+      _isApprovedOrSuperOwner(msg.sender, tokenId),
       'ERC721: caller is not token superOwner nor approved'
     );
     OwnerInfo storage info = _owners[tokenId];
     info.owner = owner;
     info.expires = expires;
-    info.lender = msg.sender;
+    info.superOwner = msg.sender;
     emit UpdateOwner(tokenId, owner, msg.sender, expires);
   }
 
@@ -159,7 +151,7 @@ contract RentafiNative is ERC721 {
   ) public virtual override {
     //solhint-disable-next-line max-line-length
     require(
-      _isApprovedOrOwner(_msgSender(), tokenId),
+      _isApprovedOrSuperOwner(_msgSender(), tokenId),
       'ERC721: caller is not token superOwner nor approved'
     );
 
@@ -174,7 +166,7 @@ contract RentafiNative is ERC721 {
     bytes memory data
   ) public virtual override {
     require(
-      _isApprovedOrOwner(_msgSender(), tokenId),
+      _isApprovedOrSuperOwner(_msgSender(), tokenId),
       'ERC721: caller is not token superOwner nor approved'
     );
     _safeTransfer(from, to, tokenId, data);
@@ -186,6 +178,19 @@ contract RentafiNative is ERC721 {
   }
 
   // MODIFIED - RentaFi Native
+  function _isApprovedOrSuperOwner(address spender, uint256 tokenId)
+    internal
+    view
+    virtual
+    returns (bool)
+  {
+    address superOwner = superOwnerOf(tokenId);
+    return (spender == superOwner ||
+      isApprovedForAll(superOwner, spender) ||
+      getApproved(tokenId) == spender);
+  }
+
+  // MODIFIED - RentaFi Native
   function _isApprovedOrOwner(address spender, uint256 tokenId)
     internal
     view
@@ -193,10 +198,7 @@ contract RentafiNative is ERC721 {
     override
     returns (bool)
   {
-    address superOwner = superOwnerOf(tokenId);
-    return (spender == superOwner ||
-      isApprovedForAll(superOwner, spender) ||
-      getApproved(tokenId) == spender);
+    return _isApprovedOrSuperOwner(spender, tokenId);
   }
 
   // MODIFIED - RentaFi Native
